@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Chinese tones practice (beta)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta1/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css" integrity="sha384-giJF6kkoqNQ00vy+HMDP7azOuL0xtbfIcaT9wjKHr8RbDVddVHyTfAAsrekwKmP1" crossorigin="anonymous">
+<body class="container">
+
+<h1 class="fs-4 mt-3">Chinese tones practice (beta)</h1>
+
+<div class="card mt-3 ps-3 pe-3 container">
+	<h5 class="fs-5 fw-bold mt-4 mb-1">Play a Chinese syllable:</h5>
+	<p class="mt-1 mb-3">
+		<button id="btn-playnew" class="btn btn-primary btn-lg mt-2 fs-6" type="button">Play New <span id="btn-playnew-spinner" class="collapse spinner-border spinner-border-sm" role="status" aria-hidden="true"></span></button>
+		<input id="btn-repeat" type="button" class="btn btn-secondary btn-lg mt-2 fs-6" value="Repeat">	
+		<input id="btn-solution" type="button" class="btn btn-success btn-lg mt-2 fs-6" data-bs-toggle="collapse" data-bs-target="#solution" aria-expanded="false" aria-controls="answer" value="See Solution">
+	</p>
+
+	<h5 class="fs-5 fw-bold mt-4 mb-2">Choose your answer:</h5>
+	<div id="user-answers">
+		<input id="btn-select1" type="button" class="btn btn-info btn-lg mt-2 me-2 fs-4" value="1 -" data-tonenumber="1">
+		<input id="btn-select2" type="button" class="btn btn-info btn-lg mt-2 me-2 fs-4" value="2 /" data-tonenumber="2">
+		<input id="btn-select3" type="button" class="btn btn-info btn-lg mt-2 me-2 fs-4" value="3 v" data-tonenumber="3">
+		<input id="btn-select4" type="button" class="btn btn-info btn-lg mt-2 me-2 fs-4" value="4 \" data-tonenumber="4">
+	</div>
+
+	<div id="status" class="mt-4 mb-1 fw-bold"></div>
+	<div id="solution" class="collapse mb-3 mt-4 p-2 card text-dark bg-light border-dark">
+		<h5 class="fs-5 fw-bold">Solution:</h5>
+		<p id="solution-text">
+			<span id="tone-details"></span>
+		</p>
+		<h6 class="fs-6 fw-bold">Listen to the same syllable by different voices:</h6>
+		<div id="alternative-tones">
+			<input id="btn-alternative1" type="button" class="btn btn-outline-secondary" value="Play Alternative 1">
+			<input id="btn-alternative2" type="button" class="btn btn-outline-secondary" value="Play Alternative 2">
+			<input id="btn-alternative3" type="button" class="btn btn-outline-secondary" value="Play Alternative 3">
+			<input id="btn-alternative4" type="button" class="btn btn-outline-secondary" value="Play Alternative 4">
+			<input id="btn-alternative5" type="button" class="btn btn-outline-secondary" value="Play Alternative 5">
+		</div>
+
+	</div>
+	<div id="session-score" class="mt-2 mb-3"></div>
+</div>
+
+<div class="mt-5 pt-5">
+	<h5 class="fs-5 fw-bold">Description:</h5>
+	<p>This web application is for a free practice of <a href="https://en.wikipedia.org/wiki/Tone_(linguistics)#Asia">four Chinese tones</a> recognition.
+	<br>It uses high quality audio from <a href="https://tone.lib.msu.edu/">Tone Perfect Database</a>.</p>
+
+	<h2 class="fs-5 fw-bold">Instructions:</h2>	
+	<ol>
+		<li>Press <tt>Play New</tt> or <kbd>P</kbd> key or <kbd>8</kbd> key to play random Chinese syllable.</li>
+		<li>Press <tt>Repeat Last</tt> or <kbd>R</kbd> key or <kbd>5</kbd> key to repeat audio.</li>
+		<li>Press one of fours <tt>answer buttons</tt> or key <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, <kbd>4</kbd> to guess the answer.</li>
+		<!--li>Press <tt>Show Solution</tt> or <kbd>A</kbd> key or <kbd>6</kbd> key to show correct answer (there is a link for details about curren sound).</li-->
+		<li>Repeat with next sound.</li>
+	</ol>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta1/dist/js/bootstrap.bundle.min.js" type="text/javascript" integrity="sha384-ygbV9kiqUc6oa4msXn9868pTtWMgiQaeYH7/t7LECLbyPA2x65Kgf80OJFdroafW" crossorigin="anonymous"></script>
+<script>
+"use strict";
+
+let appData = { pinyinsToId: undefined, syllableToPinyins: undefined, pinyins: undefined, syllables: undefined, loaded: false };
+let appState = { lastPlayed: null, // lastPlayed = {syllable, tone, pinyin, id }
+	lastAudio: null, solved: false, guesses: 0,
+	session: { rounds:0, answers: [ // appState.session.answers is an array of user's answers, divided into 4 arrays by success rate
+		[], // answers solved by 1st guess
+		[], // answers solved by 2nd guess etc.
+		[],
+		[]
+	], guesses:0, goodGuesses:0},
+};
+
+
+function loadAppData(appData) {
+	let promise1 = fetch("pinyins.json")
+		.then(response => {
+			if (response.ok) { return response.json() }
+			else { return Promise.reject({msg:"Data not loaded", response}) } 
+		}).then(data => data);
+
+	let promise2 = fetch("syllableToPinyins.json")
+		.then(response => {
+			if (response.ok) { return response.json() }
+			else { return Promise.reject({msg:"Data not loaded", response}) }
+		}).then(data => data);
+
+	Promise.all([promise1, promise2]).then((values) => {
+		//console.debug("Promise.all", values)
+		appData.pinyinsToId = values[0];
+		appData.syllableToPinyins = values[1];
+
+		appData.pinyins = processPinyinsToId(appData.pinyinsToId);
+		appData.syllables = processSyllableToPinyins(appData.syllableToPinyins);
+		appData.loaded = true;
+	});
+}
+
+
+// Check data validity, return sorted array of pinyins
+function processPinyinsToId(pinyinsToId) {
+	let pinyins = [];
+
+	for (let pinyin in pinyinsToId) {
+		pinyins.push(pinyin);
+
+		let item = pinyinsToId[pinyin]
+
+		if (item.length < 6) { // TODO there are many of them, I need to find missing sounds and complete dataset
+			//console.log(pinyin, item.length);
+		}
+
+		if (item.length > 6) {
+			console.error(pinyin, item.length);
+		}
+	}
+
+	console.debug("Pinyins loaded", pinyins.length);
+	if (pinyins.length != 1640) {  // Expected 1640 (= 410 syllables * 4 tones)
+		console.warn("Unexpected number of pinyins", pinyins.length);
+	}
+
+	pinyins.sort();
+	return pinyins;
+}
+
+
+// Check data validity, return sorted array of syllables
+function processSyllableToPinyins(syllableToPinyins) {
+	let syllables = [];
+
+	for (let syllable in syllableToPinyins) {
+		syllables.push(syllable);
+
+		let pinyinsFromSyllable = syllableToPinyins[syllable];
+		if (pinyinsFromSyllable.length != 4) {
+			console.error(syllable, pinyinsFromSyllable.length, pinyinsFromSyllable);
+		}
+	}
+
+	console.debug("Syllables loaded:", syllables.length);
+	if (syllables.length != 410) { // expecting 410 syllables (410 syllables * 4 tones * 6 voices = 9840 sounds)
+		console.warn("Unexpected number of syllables", syllables.length);
+	}
+
+	syllables.sort();
+	return syllables;
+}
+
+
+// pinyin = string
+// tone = 1, 2, 3 or 4
+// voice = FV1, FV2, FV3, FV4, MV1, MV2 or MV3
+// Eg. playVoice("a", 1, "mv1") = play a1 with MV1 = a1_MV1_MP3.mp3
+function playVoice(pinyin, tone, voice, callback) {
+	if (pinyin && tone && voice) {
+		pinyin = String(pinyin).toLowerCase();
+		tone = parseInt(tone);
+		voice = String(voice).toUpperCase();
+
+		if (pinyin.match(/^[a-z]{1,6}$/) && voice.match(/^[MF]V[1-3]$/) && tone >= 1 && tone <= 4 ) {
+			let filename = pinyin + String(tone) + "_" + voice + "_MP3.mp3";
+			console.debug("Play", filename);
+			return playFile(filename, callback);
+		}
+	}
+}
+
+// Eg. playFile("a1_FV1_MP3.mp3"), playFile("zhuang1_FV2_MP3.mp3")
+function playFile(filename, callback) {
+	if (filename && String(filename)) {
+		filename = String(filename);
+
+		if (filename.match(/^[a-z]{1,6}[1-4]_[MF]V[1-3]_MP3\.mp3$/)) {
+			let url = "tone_perfect/mp3/" + filename;
+			return playURL(url, callback);
+		}
+	}
+}
+
+// Eg. playId(1584)
+function playId(id, callback) {
+	if (id && parseInt(id)) {
+		id = parseInt(id);
+		if (id > 1000 && id < 12000) {
+			const url = `https://tone.lib.msu.edu/tone/${id}/PROXY_MP3/view`;
+			console.debug("Play", id);
+			return playURL(url, callback);
+		}
+	}
+}
+
+// Return reference to audio element.
+// When playing started, call callback if defined
+// Eg. playURL("https://tone.lib.msu.edu/tone/1584/datastream/PROXY_MP3")
+function playURL(url, callback) {
+	if (url) {
+		console.debug("Play", url);
+		let audio = new Audio(url);
+		audio.play().then(e => {
+			if (callback) {callback();}
+		});
+		return audio;
+	}
+}
+
+function playRandom() {
+	let p = chooseRandomPinyin();
+	console.debug(p);
+	return playId(p.id);
+}
+
+function chooseRandomPinyin() {
+	let syllables = appData.syllables;
+	let randomSyllable = syllables[Math.floor(Math.random() * syllables.length)];
+
+	let syllableToPinyins = appData.syllableToPinyins;
+	let randomToneIndex = Math.floor(Math.random() * syllableToPinyins[randomSyllable].length); // toneindex is zero-based. tone == toneindex+1
+	let randomPinyin = syllableToPinyins[randomSyllable][randomToneIndex];
+	let pinyinsToId = appData.pinyinsToId;
+
+	//console.log(randomPinyin);
+	//console.log(pinyinsToId[randomPinyin]);
+
+	// We have random pinyin, choose random voice
+	if (pinyinsToId[randomPinyin]) {
+		let randomVoiceSet = pinyinsToId[randomPinyin];
+		let randomVoiceIndex = Math.floor(Math.random() * randomVoiceSet.length);
+		let randomId = randomVoiceSet[randomVoiceIndex];
+		//console.log(randomId);
+
+		// Sanitize syllable and pinyin strings in case  there were some malicious data in JSON files, randomId is sanitizes by conversion Number(randomId)
+		return {"syllable": sanitizePinyin(randomSyllable), "tone": indexToTone(randomToneIndex), "pinyin": sanitizePinyin(randomPinyin), "id": Number(randomId)};
+	}
+	else {
+		console.warn("Cannot find pinyin in pinyinsToId:", randomPinyin);
+		return null;
+	}
+}
+
+// Find alternative voices to the voice with `voiceId` for `pinyin` in `pinyinsToId`
+function getAlternativeVoiceIds(pinyinsToId, pinyin, voiceId) {
+	if (pinyinsToId[pinyin]) {
+		let allVoicesIds = pinyinsToId[pinyin];
+		let alternativeVoicesIds = allVoicesIds.filter( altVoiceId => altVoiceId != voiceId); // exclude current voiceId
+
+		// Sanitize, exclude all non-integer values
+		alternativeVoicesIds = alternativeVoicesIds.filter( item => parseInt(item) == item );
+		return alternativeVoicesIds;
+	}
+}
+
+// Simple sanitizer. Remove bad characters from pinyins
+function sanitizePinyin(text) {
+	if (typeof(text) == "number") {
+		text = String(text);
+	}
+
+	// Remove all: &<>"'
+	// These shoudn't be used in syllables and pinyins by any chance
+	return text.replaceAll("&", "").replaceAll("<", "").replaceAll(">", "").replaceAll('"', "").replaceAll("'", "");
+}
+
+// Simple HTML text sanitizer, escape suspicious characters
+// and remove removeChar if defined
+function sanitize(text, removeChar) {
+	if (typeof(text) == "number") {
+		text = String(text);
+	}
+
+	if (removeChar) {
+		text = text.replaceAll(removeChar, "");
+	}
+
+	return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;");
+}
+
+
+// syllableToPinyins.json has strange order of tones
+// Here convert order (array index) to tone number
+function indexToTone(index) {
+	return [4,2,1,3][index];
+}
+
+
+function playNew() {
+	if (!appData || !appData.loaded) {
+		console.log("Can't play, no appData.");
+		return;
+	}
+
+	let p = chooseRandomPinyin();
+	appState.lastPlayed = p;
+
+	let alternativeVoicesIds = getAlternativeVoiceIds(appData.pinyinsToId, p.pinyin, p.id);
+
+	// Show spinning wheel during audio download
+	showSpinningWheel();
+	disableAnswers();
+
+	let audio = playId(p.id, function() {
+		hideSpinningWheel();
+		resetAnswers();
+		setSolution(p, alternativeVoicesIds);
+		document.getElementById("btn-repeat").disabled = false;
+		document.getElementById("btn-solution").disabled = false;
+	});
+
+	appState.lastAudio = audio;
+}
+
+
+function playLastAgain() {
+	if (appState.lastPlayed) {
+		if (appState.lastAudio) {
+			let audio = appState.lastAudio;
+			audio.play();
+		}
+		else {
+			playId(appState.lastPlayed.id)
+		}
+	}
+}
+
+
+function showSpinningWheel() {	
+	let loadingEl = document.getElementById("btn-playnew-spinner");
+	loadingEl.classList.remove("collapse");
+}
+
+
+function hideSpinningWheel() {
+	let loadingEl = document.getElementById("btn-playnew-spinner");
+	loadingEl.classList.add("collapse");	
+}
+
+
+function getAnswerButtons() {
+	let btnSelect1 = document.getElementById("btn-select1");
+	let btnSelect2 = document.getElementById("btn-select2");
+	let btnSelect3 = document.getElementById("btn-select3");
+	let btnSelect4 = document.getElementById("btn-select4");
+
+	return [btnSelect1, btnSelect2, btnSelect3, btnSelect4];
+}
+
+
+function disableAnswers() {
+	let buttons = getAnswerButtons();
+	buttons.forEach(element => {
+		element.disabled = true;
+	});
+}
+
+// prepare answer buttons for the next round
+function resetAnswers() {
+	let solutionEl   = document.getElementById("solution");
+	let statusEl   = document.getElementById("status");	
+	let buttons = getAnswerButtons();
+
+	solutionEl.classList.remove("show"); // Hide solution
+	statusEl.innerHTML = "";
+
+	buttons.forEach( element => {
+		element.disabled = false;
+		element.dataset.guessed = false;
+		element.classList.add("btn-info");
+		element.classList.remove("btn-danger");
+		element.classList.remove("btn-success");
+	});
+
+	appState.solved = false;
+	appState.guesses = 0;
+}
+
+
+function setSolution(current, alternatives) {
+	let toneDetailsEl = document.getElementById("tone-details");
+	let alternativeTonesEl = document.getElementById("alternative-tones");
+
+	toneDetailsEl.innerHTML = `<b>${current.pinyin} ${current.tone}</b> - [<a href="https://tone.lib.msu.edu/tone/${current.id}" target="_blank" title="Tone Perfect: ${current.syllable}${current.tone} ${current.id}">tone details</a>]`;
+
+	for (let i=0; i < 5; i++) {
+		let btn = document.getElementById("btn-alternative" + String(i+1));
+		if (btn) {
+			if (alternatives[i]) {
+				btn.classList.remove("collapse");
+				btn.dataset.playid = alternatives[i];
+				btn.title = `Tone Perfect: ${current.syllable}${current.tone} ${alternatives[i]}`;
+			}
+			else {
+				btn.classList.add("collapse");
+				btn.dataset.playid = 0;
+			}
+		}
+	}
+}
+
+function updateScore(scoreID, session) {
+	let scoreEl = document.getElementById(scoreID);
+	let ordinalNumbers = ["1st", "2nd", "3rd", "4th"];
+
+	let scoreText = `<b>Session progress:</b><br> ${appState.session.rounds} syllables solved, ${appState.session.goodGuesses} good guesses out of ${appState.session.guesses} (${Math.round((appState.session.goodGuesses / appState.session.guesses)*100)} %)<br>`;
+
+	// Generate list of solved pinyins
+	for (let i = 0;  i < session.answers.length; i ++) {
+			scoreText += `Solved on ${ordinalNumbers[i]} guess: `;
+
+			let pinyins = [];
+
+			for (let pinyin of session.answers[i]) {
+				pinyins.push(`<a href="https://tone.lib.msu.edu/tone/${pinyin.id}" target="_blank" title="Tone Perfect: ${pinyin.syllable}${pinyin.tone} ${pinyin.id}">${pinyin.pinyin} ${pinyin.tone}</a>`);
+			}
+
+			scoreText += pinyins.join(", ") + "<br>";
+	}
+
+	scoreText += `<b>Guessed on the first try:</b><br>`;
+
+	// Calculate success rate for all tones
+	let tonesGuessed1st = [0,0,0,0];
+	let tonesAll = [0,0,0,0];
+
+	// count tones guessed on the 1st try
+	for (let pinyin of session.answers[0]) {
+		tonesGuessed1st[pinyin.tone-1]++;
+	}
+
+	// count all tones on given session
+	for (let i = 0; i < tonesAll.length; i++) {
+		for (let pinyin of session.answers[i]) {
+			tonesAll[pinyin.tone-1]++;
+		}
+	}
+
+	for (let i = 0; i < tonesAll.length; i++) {
+		let rating;
+
+		if (tonesAll[i] != 0) {
+			scoreText += `Tone ${i+1}: ${Math.round(tonesGuessed1st[i]/tonesAll[i]*100)} %<br>`;
+		}
+	}
+
+	scoreEl.innerHTML = scoreText;
+}
+
+
+// Select answer 1-4
+function selectAnswer(index) {
+	if (appState.solved || !appState.lastPlayed) {
+		return; // already solved or didn't play tone yet
+	}
+
+	let solutionEl = document.getElementById("solution");
+	let statusEl = document.getElementById("status");
+	let buttons = getAnswerButtons();
+
+	if (buttons[index-1].dataset.guessed == "true") {
+		return; // already used this answer in this round
+	}
+
+	appState.guesses++;
+	appState.session.guesses++;
+	buttons[index-1].dataset.guessed = true;
+
+	// Correct answer
+	if (index === appState.lastPlayed.tone) {
+		buttons[index-1].classList.add("btn-success");
+		buttons[index-1].classList.remove("btn-info");
+
+		solutionEl.classList.add("show"); // Show solution
+		appState.session.goodGuesses++;
+
+		if (appState.guesses > 1) {
+			if (appState.guesses < 4) {
+				statusEl.innerHTML = "Correct! 😀 " + appState.guesses + " guesses. Try another one!";
+			}
+			else {
+				// Too bad
+				statusEl.innerHTML = "Correct! But " + appState.guesses + " guesses. 😞 Better luck next time!";
+			}
+
+		}
+		else {
+			statusEl.innerHTML = "Correct! 😀 Try another one!";
+		}
+
+		appState.session.rounds++;
+		appState.session.answers[appState.guesses-1].push(appState.lastPlayed);
+		appState.solved = true;
+	}
+	// Incorrect answer
+	else {
+		buttons[index-1].classList.add("btn-danger");
+		buttons[index-1].classList.remove("btn-info");
+
+		statusEl.innerHTML = "Wrong. Guess again! 😞";
+	}
+
+	updateScore("session-score", appState.session);
+	playLastAgain();
+}
+
+function initUI() {
+
+	["btn-repeat", "btn-solution", "btn-select1", "btn-select2", "btn-select3", "btn-select4"].forEach(elementName => {
+		document.getElementById(elementName).disabled = true;
+	});
+
+	document.getElementById("btn-playnew").onclick = function(event) {
+		playNew();
+		return false;
+	};
+
+	document.getElementById("btn-repeat").onclick = function(event) {
+		playLastAgain();
+		return false;
+	};
+
+	["btn-alternative1", "btn-alternative2", "btn-alternative3", "btn-alternative4", "btn-alternative5"].forEach(elementName => {
+		let btn = document.getElementById(elementName);
+
+		btn.onclick = function(event) {
+			if (event.target && event.target.dataset && event.target.dataset.playid) {
+				let voiceid = parseInt(event.target.dataset.playid);
+				playId(voiceid);
+			}
+			else {
+				console.warn("Cannot find alternative playid during click event.");
+			}
+			return false;
+		}
+	});
+
+	getAnswerButtons().forEach( element => {
+
+		element.onclick = function(event) {
+			//console.log(event);
+			if (event.target && event.target.dataset && event.target.dataset.tonenumber) {
+				let tonenumber = event.target.dataset.tonenumber;
+				tonenumber = parseInt(tonenumber);
+
+				if (tonenumber == NaN) {
+					console.warn("Tonenumber must be number", event.target.dataset.tonenumber);
+				}
+				else {
+					selectAnswer(tonenumber);
+				}
+			}
+			else {
+				console.warn("Cannot find tone-number during click event.");
+			}
+			return false;
+		}
+	});
+
+	document.addEventListener("keydown", function(event) {
+		let keyName = event.key;
+		let keyCode = event.code;
+		//console.log("KEYDOWN", event.key, event.keyCode, event.code);
+
+		if (keyCode === "Digit8" || keyCode === "Numpad8" || (keyCode === "KeyP" && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey)) {
+			playNew();
+		}
+		else if (keyCode === "Digit5" || keyCode === "Numpad5" || (keyCode === "KeyR" && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey)) {
+			playLastAgain();
+		}
+		else if (keyCode === "Digit6" || keyCode === "Numpad6" || (keyCode === "KeyA" && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey)) {
+			document.getElementById("btn-solution").click();
+		}
+		else if (keyCode === "Digit1" || keyCode === "Numpad1") {
+			document.getElementById("btn-select1").click();
+		}
+		else if (keyCode === "Digit2" || keyCode === "Numpad2") {
+			document.getElementById("btn-select2").click();
+		}
+		else if (keyCode === "Digit3" || keyCode === "Numpad3") {
+			document.getElementById("btn-select3").click();
+		}
+		else if (keyCode === "Digit4" || keyCode === "Numpad4") {
+			document.getElementById("btn-select4").click();
+		}
+
+	}, false);
+}
+
+
+loadAppData(appData);
+initUI();
+
+</script>
